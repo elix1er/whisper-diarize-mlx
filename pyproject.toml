@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whisper-diarize"
+version = "0.1.0"
+description = "MLX Whisper + MLX speaker diarization for Apple Silicon. File / pipe / live mic."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "whisper-diarize" }]
+dependencies = [
+    "mlx-audio>=0.4.6",
+    "mlx-whisper>=0.4.3",
+    "numpy",
+    "scipy",
+    "sounddevice",
+    "pyyaml",
+]
+
+[project.scripts]
+whisper-diarize = "whisper_diarize.cli:main"
+
+[tool.setuptools]
+packages = ["whisper_diarize"]
