@@ -15,7 +15,8 @@ import sys
 import threading
 
 from .core import (
-    DEFAULT_ASR_BATCH, DEFAULT_ASR_STREAM, DEFAULT_DIAR, transcribe, transcribe_stream,
+    DEFAULT_ASR_BATCH, DEFAULT_ASR_STREAM, DEFAULT_DIAR, DEFAULT_DIAR_CHUNK_SEC,
+    transcribe, transcribe_stream,
 )
 from .formatters import FORMATTERS
 from .sources import LiveAudioSource, EOS, file_source, list_input_devices, stdin_source
@@ -59,6 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seconds", type=float, default=0.0,
                    help="live: auto-stop after N seconds (0 = until Ctrl-C)")
     p.add_argument("--diar-threshold", type=float, default=0.5)
+    p.add_argument("--diar-chunk-seconds", type=float, default=DEFAULT_DIAR_CHUNK_SEC,
+                   help="batch diarization chunk size (default: 5; state is preserved across chunks)")
+    p.add_argument("--num-speakers", type=int, choices=range(1, 5), default=None,
+                   help="known speaker count, 1-4; omit to suppress insignificant channels automatically")
     p.add_argument("--verbose", action="store_true")
     return p
 
@@ -131,6 +136,7 @@ def _run_batch(args: argparse.Namespace) -> int:
         audio_path, asr_model=args.asr_model or DEFAULT_ASR_BATCH,
         diar_model=args.diar_model, language=args.language,
         no_diar=args.no_diar, diar_threshold=args.diar_threshold,
+        diar_chunk_sec=args.diar_chunk_seconds, num_speakers=args.num_speakers,
         verbose=args.verbose,
     )
     fn = FORMATTERS[args.output]

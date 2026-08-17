@@ -7,6 +7,7 @@ Public:
 from __future__ import annotations
 
 import time
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Generator, List, Optional, Union
 
@@ -17,7 +18,8 @@ from .sources import SR, EOS
 # Model defaults chosen for the M3 Max / 5GB-disk target.
 DEFAULT_ASR_BATCH = "mlx-community/whisper-large-v3-turbo"      # weights-only port
 DEFAULT_ASR_STREAM = "openai/whisper-large-v3-turbo"           # needs processor
-DEFAULT_DIAR = "mlx-community/diar_sortformer_4spk-v1-fp16"
+DEFAULT_DIAR = "mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16"
+DEFAULT_DIAR_CHUNK_SEC = 5.0
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +71,16 @@ def _assign_speaker(t0, t1, turns: List[dict]) -> int:
         d = _overlap(t0, t1, t["start"], t["end"])
         if d > best_dur:
             best_dur, best_spk = d, t["speaker"]
-    return best_spk
+    if best_spk >= 0 or not turns:
+        return best_spk
+    midpoint = (t0 + t1) / 2.0
+    nearest = min(
+        turns,
+        key=lambda turn: abs(
+            (float(turn["start"]) + float(turn["end"])) / 2.0 - midpoint
+        ),
+    )
+    return int(nearest["speaker"])
 
 
 def _merge_segments(asr_result: dict, turns: List[dict]) -> List[Segment]:
@@ -114,6 +125,55 @@ def _merge_turns(turns: List[dict], max_gap: float = 0.5) -> List[dict]:
     return merged
 
 
+def _select_speakers(
+    turns: List[dict],
+    num_speakers: Optional[int] = None,
+    *,
+    min_activity_sec: float = 5.0,
+    min_activity_share: float = 0.01,
+) -> List[dict]:
+    """Drop spurious channels and remap retained speakers to dense IDs.
+
+    Sortformer always exposes four output channels. A few isolated activations
+    on an otherwise unused channel must not be reported as extra people. When
+    the speaker count is known, ``num_speakers`` is authoritative. Otherwise,
+    channels need both a small absolute and relative amount of speech.
+    """
+    if not turns:
+        return []
+    durations: dict[int, float] = defaultdict(float)
+    first_seen: dict[int, float] = {}
+    for turn in turns:
+        speaker = int(turn["speaker"])
+        durations[speaker] += max(0.0, float(turn["end"]) - float(turn["start"]))
+        first_seen[speaker] = min(first_seen.get(speaker, float("inf")), float(turn["start"]))
+
+    ranked = sorted(durations, key=lambda speaker: (-durations[speaker], speaker))
+    if num_speakers is not None:
+        if num_speakers < 1 or num_speakers > 4:
+            raise ValueError("num_speakers must be between 1 and 4")
+        if len(ranked) < num_speakers:
+            raise ValueError(
+                f"requested {num_speakers} speakers, but only {len(ranked)} active channels were detected"
+            )
+        selected = ranked[:num_speakers]
+    else:
+        total = sum(durations.values())
+        floor = max(min_activity_sec, total * min_activity_share)
+        selected = [speaker for speaker in ranked if durations[speaker] >= floor]
+        if not selected:
+            selected = ranked[:1]
+
+    selected.sort(key=lambda speaker: (first_seen[speaker], speaker))
+    remap = {speaker: dense_id for dense_id, speaker in enumerate(selected)}
+    return [
+        {"start": float(turn["start"]), "end": float(turn["end"]),
+         "speaker": remap[int(turn["speaker"])]}
+        for turn in turns
+        if int(turn["speaker"]) in remap
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Batch: transcribe()
 # ---------------------------------------------------------------------------
@@ -127,6 +187,8 @@ def transcribe(
     no_diar: bool = False,
     word_timestamps: bool = True,
     diar_threshold: float = 0.5,
+    diar_chunk_sec: float = DEFAULT_DIAR_CHUNK_SEC,
+    num_speakers: Optional[int] = None,
     verbose: bool = False,
 ) -> DiarizationResult:
     """Batch transcribe + diarize an audio file or 16k mono array.
@@ -151,11 +213,20 @@ def transcribe(
         from mlx_audio.vad import load as load_vad
         d0 = time.time()
         m = load_vad(diar_model)
-        out = m.generate(audio, threshold=diar_threshold, verbose=verbose)
-        turns = _merge_turns([
-            {"start": s.start, "end": s.end, "speaker": int(s.speaker)}
-            for s in out.segments
-        ])
+        raw_turns: List[dict] = []
+        for out in m.generate_stream(
+            audio,
+            chunk_duration=diar_chunk_sec,
+            threshold=diar_threshold,
+            min_duration=0.1,
+            merge_gap=0.1,
+            verbose=verbose,
+        ):
+            raw_turns.extend(
+                {"start": s.start, "end": s.end, "speaker": int(s.speaker)}
+                for s in out.segments
+            )
+        turns = _merge_turns(_select_speakers(raw_turns, num_speakers))
         if verbose:
             print(f"[whisper_diarize] DIAR done {time.time()-d0:.2f}s "
                   f"({len(turns)} turns)", flush=True)
