@@ -78,3 +78,14 @@ poc/samples/*.wav
 *.tmp.wav
 *.raw
 /tmp/
+
+# User recordings and generated transcripts
+*.m4a
+*.aac
+*.mp3
+*.wav
+*.srt
+*.vtt
+*.diar.txt
+*.diar.json
+!poc/samples/.gitkeep

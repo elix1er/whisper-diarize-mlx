@@ -36,6 +36,8 @@ Or use the launcher script directly (it points at the venv):
 
 ### File mode
 ```bash
+whisper-diarize audio.m4a -o json        # M4A decoded through ffmpeg
+whisper-diarize conversation.m4a --num-speakers 2 -o md
 whisper-diarize audio.wav -o json        # default
 whisper-diarize audio.wav -o yaml
 whisper-diarize audio.wav -o md          # speaker-attributed markdown
@@ -143,9 +145,15 @@ whisper-diarize --live --source blackhole
 |---|---|---|
 | Batch | `mlx-community/whisper-large-v3-turbo` | weights-only MLX port, fast |
 | Live  | `openai/whisper-large-v3-turbo` | bundles WhisperProcessor (streaming needs it); MLX still runs inference |
-| Diar  | `mlx-community/diar_sortformer_4spk-v1-fp16` | MLX-native, ≤4 speakers |
+| Diar  | `mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16` | Stateful, bounded-memory diarization, ≤4 speakers |
 
 Override anytime: `--asr-model <hf-id> --diar-model <hf-id>`.
+
+Batch diarization uses Sortformer v2.1's native streaming state with five-second
+chunks. Speaker identity is carried across the entire recording; chunks are not
+diarized independently or stitched by guessed overlap. If the cast is known,
+pass `--num-speakers N`. Otherwise, isolated low-activity model channels are
+suppressed automatically instead of being reported as extra speakers.
 
 > **Licensing note**: Sortformer weights are CC-BY-NC (non-commercial) — fine for
 > personal/research. For commercial use, swap `--diar-model` to the MIT-licensed
