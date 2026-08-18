@@ -145,19 +145,25 @@ whisper-diarize --live --source blackhole
 |---|---|---|
 | Batch | `mlx-community/whisper-large-v3-turbo` | weights-only MLX port, fast |
 | Live  | `openai/whisper-large-v3-turbo` | bundles WhisperProcessor (streaming needs it); MLX still runs inference |
-| Diar  | `mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16` | Stateful, bounded-memory diarization, ≤4 speakers |
+| Diar  | `mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16` | Stateful streaming diarization, ≤4 speakers |
 
 Override anytime: `--asr-model <hf-id> --diar-model <hf-id>`.
 
 Batch diarization uses Sortformer v2.1's native streaming state with five-second
-chunks. Speaker identity is carried across the entire recording; chunks are not
-diarized independently or stitched by guessed overlap. If the cast is known,
-pass `--num-speakers N`. Otherwise, isolated low-activity model channels are
-suppressed automatically instead of being reported as extra speakers.
+inference chunks. Speaker identity is carried across the entire recording;
+chunks are not diarized independently or stitched by guessed overlap. The
+stateful attention path is bounded by the streaming cache, although file mode
+still loads the recording and prepares full-file features/right context, so
+total memory is not strictly constant with recording length. If the cast is
+known, pass `--num-speakers N`. Otherwise, only tiny low-activity output
+channels are suppressed automatically instead of using a recording-length-
+scaled threshold that could remove a legitimate quiet participant.
 
-> **Licensing note**: Sortformer weights are CC-BY-NC (non-commercial) — fine for
-> personal/research. For commercial use, swap `--diar-model` to the MIT-licensed
-> `mlx-community/pyannote-segmentation-3.0-mlx` + WeSpeaker path (planned).
+> **Licensing note**: the NVIDIA Sortformer v2.1 source model is distributed
+> under the NVIDIA Open Model License. That license permits commercial use
+> subject to its terms. Review the upstream model card and license for your
+> deployment and any redistributed weights; this project does not replace those
+> terms with a non-commercial restriction.
 
 ## Performance (Apple M3 Max, 36 GB)
 
