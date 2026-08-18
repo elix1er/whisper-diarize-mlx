@@ -13,6 +13,14 @@ class SelectSpeakersTests(unittest.TestCase):
         self.assertEqual(_assign_speaker(2.5, 3.0, turns), 0)
         self.assertEqual(_assign_speaker(7.0, 7.5, turns), 1)
 
+    def test_distant_gap_remains_unassigned(self):
+        turns = [
+            {"start": 0.0, "end": 2.0, "speaker": 0},
+            {"start": 100.0, "end": 102.0, "speaker": 1},
+        ]
+
+        self.assertEqual(_assign_speaker(50.0, 51.0, turns), -1)
+
     def test_no_turns_remains_unassigned(self):
         self.assertEqual(_assign_speaker(0.0, 1.0, []), -1)
 
@@ -28,6 +36,19 @@ class SelectSpeakersTests(unittest.TestCase):
 
         self.assertEqual({turn["speaker"] for turn in selected}, {0, 1})
         self.assertEqual(len(selected), 2)
+
+    def test_auto_keeps_legitimate_low_talk_speaker_on_long_recording(self):
+        turns = [
+            {"start": 0.0, "end": 1800.0, "speaker": 0},
+            {"start": 0.0, "end": 1000.0, "speaker": 1},
+            {"start": 600.0, "end": 620.0, "speaker": 2},
+            {"start": 1200.0, "end": 1203.0, "speaker": 3},
+        ]
+
+        selected = _select_speakers(turns)
+
+        self.assertEqual({turn["speaker"] for turn in selected}, {0, 1, 2})
+        self.assertEqual(len(selected), 3)
 
     def test_known_count_is_authoritative(self):
         turns = [

@@ -12,9 +12,43 @@ Built on [mlx-audio](https://github.com/Blaizzy/mlx-audio) (v0.4.6) and
 - **ASR**: MLX Whisper `large-v3-turbo` — fastest accurate Whisper on M-series.
 - **Speaker diarization**: MLX Sortformer 4-spk (`mlx-community`) — native MLX,
   end-to-end "who spoke when".
-- **Merge**: whisperX-style IntervalTree word↔speaker overlap join.
+- **Merge**: word-level timestamp overlap attribution, with bounded fallback for
+  short diarization gaps.
 - **Outputs**: every field the segmentation produces — speaker labels, turn
   timestamps, word-level alignment, confidence.
+
+## Why Whisper + Sortformer instead of one diarizing ASR model?
+
+`mlx-audio` also supports end-to-end speaker-aware models such as
+[MOSS-Transcribe-Diarize](https://github.com/Blaizzy/mlx-audio/tree/main/mlx_audio/stt/models/moss_transcribe_diarize),
+which generate timestamps, speaker labels, and transcript text jointly in one
+model. That is an attractive architecture for simple offline transcription, but
+this project deliberately keeps ASR and diarization as separate specialist
+components.
+
+| | Whisper + Sortformer (this project) | End-to-end diarizing ASR (e.g. MOSS) |
+|---|---|---|
+| Architecture | two specialist models + explicit attribution | one model generates text + speakers jointly |
+| Live microphone audio | **native incremental ASR + stateful streaming diarization** | current MLX MOSS path processes supplied audio, then streams generated tokens |
+| Word-level timing | **Whisper word timestamps + confidence** | primarily generated speaker-attributed segments |
+| Debuggability | **ASR, diarization, and attribution can be inspected separately** | errors are coupled inside one generated result |
+| Model choice | **ASR and diarizer can be upgraded independently** | transcription and diarization are tied to one model |
+| Simplicity | more moving parts | **simpler offline pipeline** |
+
+The tradeoff is intentional. An end-to-end model removes the timestamp-merge
+step and may be a strong batch option, but the cascade is a better fit when the
+requirements are **true live capture, precise word-level output, observable
+failure modes, and replaceable best-of-breed backends**.
+
+In particular, the live path here is not token streaming over an already-loaded
+recording: new microphone/system-audio PCM is continuously fed into Whisper's
+streaming decoder and Sortformer's persistent speaker state. The two models can
+therefore evolve independently while the public transcript/output format stays
+stable.
+
+MOSS and similar models remain interesting alternative backends for future
+benchmarking; they are complementary rather than a reason to collapse the
+current architecture.
 
 ## Install
 
@@ -145,19 +179,25 @@ whisper-diarize --live --source blackhole
 |---|---|---|
 | Batch | `mlx-community/whisper-large-v3-turbo` | weights-only MLX port, fast |
 | Live  | `openai/whisper-large-v3-turbo` | bundles WhisperProcessor (streaming needs it); MLX still runs inference |
-| Diar  | `mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16` | Stateful, bounded-memory diarization, ≤4 speakers |
+| Diar  | `mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16` | Stateful streaming diarization, ≤4 speakers |
 
 Override anytime: `--asr-model <hf-id> --diar-model <hf-id>`.
 
 Batch diarization uses Sortformer v2.1's native streaming state with five-second
-chunks. Speaker identity is carried across the entire recording; chunks are not
-diarized independently or stitched by guessed overlap. If the cast is known,
-pass `--num-speakers N`. Otherwise, isolated low-activity model channels are
-suppressed automatically instead of being reported as extra speakers.
+inference chunks. Speaker identity is carried across the entire recording;
+chunks are not diarized independently or stitched by guessed overlap. The
+stateful attention path is bounded by the streaming cache, although file mode
+still loads the recording and prepares full-file features/right context, so
+total memory is not strictly constant with recording length. If the cast is
+known, pass `--num-speakers N`. Otherwise, only tiny low-activity output
+channels are suppressed automatically instead of using a recording-length-
+scaled threshold that could remove a legitimate quiet participant.
 
-> **Licensing note**: Sortformer weights are CC-BY-NC (non-commercial) — fine for
-> personal/research. For commercial use, swap `--diar-model` to the MIT-licensed
-> `mlx-community/pyannote-segmentation-3.0-mlx` + WeSpeaker path (planned).
+> **Licensing note**: the NVIDIA Sortformer v2.1 source model is distributed
+> under the NVIDIA Open Model License. That license permits commercial use
+> subject to its terms. Review the upstream model card and license for your
+> deployment and any redistributed weights; this project does not replace those
+> terms with a non-commercial restriction.
 
 ## Performance (Apple M3 Max, 36 GB)
 

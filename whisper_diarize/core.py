@@ -20,6 +20,7 @@ DEFAULT_ASR_BATCH = "mlx-community/whisper-large-v3-turbo"      # weights-only p
 DEFAULT_ASR_STREAM = "openai/whisper-large-v3-turbo"           # needs processor
 DEFAULT_DIAR = "mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16"
 DEFAULT_DIAR_CHUNK_SEC = 5.0
+DEFAULT_SPEAKER_GAP_SEC = 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +66,23 @@ def _overlap(a0, a1, b0, b1) -> float:
     return inter if inter > 0 else 0.0
 
 
-def _assign_speaker(t0, t1, turns: List[dict]) -> int:
+def _gap_to_turn(t0: float, t1: float, turn: dict) -> float:
+    """Shortest non-overlapping distance between a segment and diarization turn."""
+    start = float(turn["start"])
+    end = float(turn["end"])
+    if t1 < start:
+        return start - t1
+    if end < t0:
+        return t0 - end
+    return 0.0
+
+
+def _assign_speaker(
+    t0: float,
+    t1: float,
+    turns: List[dict],
+    max_gap_sec: float = DEFAULT_SPEAKER_GAP_SEC,
+) -> int:
     best_spk, best_dur = -1, 0.0
     for t in turns:
         d = _overlap(t0, t1, t["start"], t["end"])
@@ -73,14 +90,11 @@ def _assign_speaker(t0, t1, turns: List[dict]) -> int:
             best_dur, best_spk = d, t["speaker"]
     if best_spk >= 0 or not turns:
         return best_spk
-    midpoint = (t0 + t1) / 2.0
-    nearest = min(
-        turns,
-        key=lambda turn: abs(
-            (float(turn["start"]) + float(turn["end"])) / 2.0 - midpoint
-        ),
-    )
-    return int(nearest["speaker"])
+
+    nearest = min(turns, key=lambda turn: _gap_to_turn(t0, t1, turn))
+    if _gap_to_turn(t0, t1, nearest) <= max_gap_sec:
+        return int(nearest["speaker"])
+    return -1
 
 
 def _merge_segments(asr_result: dict, turns: List[dict]) -> List[Segment]:
@@ -130,14 +144,15 @@ def _select_speakers(
     num_speakers: Optional[int] = None,
     *,
     min_activity_sec: float = 5.0,
-    min_activity_share: float = 0.01,
 ) -> List[dict]:
-    """Drop spurious channels and remap retained speakers to dense IDs.
+    """Drop only tiny spurious channels and remap retained speakers to dense IDs.
 
     Sortformer always exposes four output channels. A few isolated activations
     on an otherwise unused channel must not be reported as extra people. When
     the speaker count is known, ``num_speakers`` is authoritative. Otherwise,
-    channels need both a small absolute and relative amount of speech.
+    only channels below the small absolute activity floor are suppressed. The
+    floor intentionally does not scale with recording length so legitimate
+    low-talk participants in long recordings are not silently discarded.
     """
     if not turns:
         return []
@@ -158,9 +173,7 @@ def _select_speakers(
             )
         selected = ranked[:num_speakers]
     else:
-        total = sum(durations.values())
-        floor = max(min_activity_sec, total * min_activity_share)
-        selected = [speaker for speaker in ranked if durations[speaker] >= floor]
+        selected = [speaker for speaker in ranked if durations[speaker] >= min_activity_sec]
         if not selected:
             selected = ranked[:1]
 
