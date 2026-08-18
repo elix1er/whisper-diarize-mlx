@@ -12,9 +12,43 @@ Built on [mlx-audio](https://github.com/Blaizzy/mlx-audio) (v0.4.6) and
 - **ASR**: MLX Whisper `large-v3-turbo` — fastest accurate Whisper on M-series.
 - **Speaker diarization**: MLX Sortformer 4-spk (`mlx-community`) — native MLX,
   end-to-end "who spoke when".
-- **Merge**: whisperX-style IntervalTree word↔speaker overlap join.
+- **Merge**: word-level timestamp overlap attribution, with bounded fallback for
+  short diarization gaps.
 - **Outputs**: every field the segmentation produces — speaker labels, turn
   timestamps, word-level alignment, confidence.
+
+## Why Whisper + Sortformer instead of one diarizing ASR model?
+
+`mlx-audio` also supports end-to-end speaker-aware models such as
+[MOSS-Transcribe-Diarize](https://github.com/Blaizzy/mlx-audio/tree/main/mlx_audio/stt/models/moss_transcribe_diarize),
+which generate timestamps, speaker labels, and transcript text jointly in one
+model. That is an attractive architecture for simple offline transcription, but
+this project deliberately keeps ASR and diarization as separate specialist
+components.
+
+| | Whisper + Sortformer (this project) | End-to-end diarizing ASR (e.g. MOSS) |
+|---|---|---|
+| Architecture | two specialist models + explicit attribution | one model generates text + speakers jointly |
+| Live microphone audio | **native incremental ASR + stateful streaming diarization** | current MLX MOSS path processes supplied audio, then streams generated tokens |
+| Word-level timing | **Whisper word timestamps + confidence** | primarily generated speaker-attributed segments |
+| Debuggability | **ASR, diarization, and attribution can be inspected separately** | errors are coupled inside one generated result |
+| Model choice | **ASR and diarizer can be upgraded independently** | transcription and diarization are tied to one model |
+| Simplicity | more moving parts | **simpler offline pipeline** |
+
+The tradeoff is intentional. An end-to-end model removes the timestamp-merge
+step and may be a strong batch option, but the cascade is a better fit when the
+requirements are **true live capture, precise word-level output, observable
+failure modes, and replaceable best-of-breed backends**.
+
+In particular, the live path here is not token streaming over an already-loaded
+recording: new microphone/system-audio PCM is continuously fed into Whisper's
+streaming decoder and Sortformer's persistent speaker state. The two models can
+therefore evolve independently while the public transcript/output format stays
+stable.
+
+MOSS and similar models remain interesting alternative backends for future
+benchmarking; they are complementary rather than a reason to collapse the
+current architecture.
 
 ## Install
 
