@@ -1,11 +1,4 @@
-"""whisper-diarize CLI.
-
-Modes:
-  FILE   : whisper-diarize audio.wav -o json
-  PIPE   : cat audio.wav | whisper-diarize -o yaml
-  LIVE   : whisper-diarize --live [--source mic|blackhole|<idx>] [--seconds N]
-           (streams NDJSON events to stdout)
-"""
+"""Command-line interface for whisper-diarize."""
 from __future__ import annotations
 
 import argparse
@@ -14,20 +7,18 @@ import signal
 import sys
 import threading
 
-from .core import (
-    DEFAULT_ASR_BATCH, DEFAULT_ASR_STREAM, DEFAULT_DIAR, DEFAULT_DIAR_CHUNK_SEC,
-    transcribe, transcribe_stream,
-)
 from .formatters import FORMATTERS
-from .sources import LiveAudioSource, EOS, file_source, list_input_devices, stdin_source
+from .offline import DEFAULT_ASR_FILE, DEFAULT_DIAR, DEFAULT_DIAR_CHUNK_SEC, transcribe
+from .sources import EOS, LiveAudioSource, list_input_devices
+from .streaming import DEFAULT_ASR_STREAM, transcribe_stream
 
 
-def _emit(obj: dict):
+def _emit(obj: dict) -> None:
     sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
 
-def _emit_lines(text: str):
+def _emit_lines(text: str) -> None:
     sys.stdout.write(text)
     if not text.endswith("\n"):
         sys.stdout.write("\n")
@@ -35,112 +26,175 @@ def _emit_lines(text: str):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         prog="whisper-diarize",
-        description="MLX Whisper + MLX speaker diarization (Apple Silicon). "
-                    "File / pipe / live mic modes.",
+        description="Local MLX Whisper transcription + Sortformer speaker diarization for Apple Silicon.",
     )
-    p.add_argument("audio", nargs="?", default=None,
-                   help="audio file path (omit to read from stdin, or use --live)")
-    p.add_argument("-o", "--output", default="json",
-                   choices=list(FORMATTERS) + ["ndjson"],
-                   help="output format (default: json; ndjson only valid with --live)")
-    p.add_argument("--live", action="store_true",
-                   help="live capture mode (streams NDJSON events)")
-    p.add_argument("--source", default="mic",
-                   help="live source: 'mic' | 'blackhole' | device index | name substring")
-    p.add_argument("--list-devices", action="store_true",
-                   help="list input devices and exit")
+    parser.add_argument(
+        "audio",
+        nargs="?",
+        default=None,
+        help="audio file path (omit for stdin, or use --live)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="json",
+        choices=list(FORMATTERS) + ["ndjson"],
+        help="offline format; live mode always emits NDJSON events",
+    )
+    parser.add_argument("--live", action="store_true", help="capture live audio and emit NDJSON events")
+    parser.add_argument(
+        "--source",
+        default="mic",
+        help="live source: mic | blackhole | device index | device-name substring",
+    )
+    parser.add_argument("--list-devices", action="store_true", help="list audio input devices and exit")
+    parser.add_argument(
+        "--asr-model",
+        default=None,
+        help=f"ASR model (default: {DEFAULT_ASR_FILE} offline / {DEFAULT_ASR_STREAM} live)",
+    )
+    parser.add_argument("--diar-model", default=DEFAULT_DIAR)
+    parser.add_argument(
+        "--language",
+        default=None,
+        help="language code; offline auto-detects when omitted, live defaults to en",
+    )
+    parser.add_argument("--no-diar", action="store_true", help="disable speaker diarization")
+    parser.add_argument(
+        "--seconds",
+        type=float,
+        default=0.0,
+        help="live: stop after N seconds (0 = until Ctrl-C)",
+    )
+    parser.add_argument("--diar-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--diar-chunk-seconds",
+        type=float,
+        default=DEFAULT_DIAR_CHUNK_SEC,
+        help="Sortformer chunk size in seconds (default: 5; state persists across chunks)",
+    )
+    parser.add_argument(
+        "--num-speakers",
+        type=int,
+        choices=range(1, 5),
+        default=None,
+        help="offline known speaker count, 1-4",
+    )
+    parser.add_argument("--verbose", action="store_true")
+    return parser
 
-    p.add_argument("--asr-model", default=None,
-                   help=f"ASR model (default: {DEFAULT_ASR_BATCH} batch / {DEFAULT_ASR_STREAM} live)")
-    p.add_argument("--diar-model", default=DEFAULT_DIAR)
-    p.add_argument("--language", default=None, help="language code; omit to auto-detect")
-    p.add_argument("--no-diar", action="store_true", help="disable speaker diarization")
-    p.add_argument("--seconds", type=float, default=0.0,
-                   help="live: auto-stop after N seconds (0 = until Ctrl-C)")
-    p.add_argument("--diar-threshold", type=float, default=0.5)
-    p.add_argument("--diar-chunk-seconds", type=float, default=DEFAULT_DIAR_CHUNK_SEC,
-                   help="batch diarization chunk size (default: 5; state is preserved across chunks)")
-    p.add_argument("--num-speakers", type=int, choices=range(1, 5), default=None,
-                   help="known speaker count, 1-4; omit to suppress insignificant channels automatically")
-    p.add_argument("--verbose", action="store_true")
-    return p
+
+def _resolve_live_device(source: str):
+    if source == "mic":
+        return None
+    if source == "blackhole":
+        return "blackhole"
+    try:
+        return int(source)
+    except (TypeError, ValueError):
+        return source
 
 
 def _run_live(args: argparse.Namespace) -> int:
-    if args.output != "ndjson" and args.output != "json":
-        print("error: --live emits NDJSON; output forced to ndjson", file=sys.stderr)
-    # resolve source device
-    src_map = {"mic": None, "blackhole": "blackhole"}
-    device = src_map.get(args.source, args.source)
-    try:
-        device_idx = int(args.source)
-        device = device_idx
-    except (ValueError, TypeError):
-        pass
+    if args.audio is not None:
+        print("error: positional audio cannot be combined with --live", file=sys.stderr)
+        return 2
+    if args.num_speakers is not None:
+        print("error: --num-speakers is currently an offline-only option", file=sys.stderr)
+        return 2
 
     stop = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
-
-    src = LiveAudioSource(device=device, stop_event=stop)
-    src.start()
-    sys.stderr.write(f"[whisper-diarize] live source={args.source!r} "
-                     f"device={src._resolved_index} — streaming NDJSON\n")
+    source = LiveAudioSource(device=_resolve_live_device(args.source), stop_event=stop)
+    source.start()
+    sys.stderr.write(
+        f"[whisper-diarize] live source={args.source!r} device={source._resolved_index} — NDJSON\n"
+    )
     try:
-        for ev in transcribe_stream(
-            chunk_source=lambda: next(src.chunks(), EOS),
+        chunks = source.chunks()
+        for event in transcribe_stream(
+            chunk_source=lambda: next(chunks, EOS),
             asr_model=args.asr_model or DEFAULT_ASR_STREAM,
-            diar_model=args.diar_model, language=args.language or "en",
-            no_diar=args.no_diar, max_seconds=args.seconds, verbose=args.verbose,
+            diar_model=args.diar_model,
+            language=args.language or "en",
+            no_diar=args.no_diar,
+            diar_chunk_sec=args.diar_chunk_seconds,
+            diar_threshold=args.diar_threshold,
+            max_seconds=args.seconds,
+            verbose=args.verbose,
         ):
-            _emit(ev)
+            _emit(event)
     finally:
-        src.stop()
+        source.stop()
         sys.stderr.write("[whisper-diarize] stopped\n")
     return 0
 
 
-def _run_batch(args: argparse.Namespace) -> int:
-    if args.audio is None and sys.stdin.isatty():
-        print("error: provide an audio file, pipe via stdin, or use --live",
-              file=sys.stderr)
-        return 2
-    # gather audio
-    if args.audio is not None:
-        audio_path = args.audio
-    else:
-        # read stdin to a temp file (supports wav/mp3/etc, not just raw pcm)
-        import os, tempfile
-        raw = sys.stdin.buffer.read()
-        suffix = ".wav" if raw[:4] == b"RIFF" else ".raw"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
-            f.write(raw)
-            audio_path = f.name
-        # if raw pcm, wrap into wav via ffmpeg
-        if suffix == ".raw":
-            import subprocess
-            wav_tmp = audio_path + ".wav"
-            subprocess.run(
-                ["ffmpeg", "-y", "-f", "s16le", "-ar", "16000", "-ac", "1",
-                 "-i", audio_path, wav_tmp],
-                check=True, capture_output=True,
-            )
-            os.unlink(audio_path)
-            audio_path = wav_tmp
-        # cleanup on exit
-        import atexit
-        atexit.register(lambda: os.path.exists(audio_path) and os.unlink(audio_path))
+def _stdin_to_temp_audio() -> str:
+    import atexit
+    import os
+    import subprocess
+    import tempfile
 
-    res = transcribe(
-        audio_path, asr_model=args.asr_model or DEFAULT_ASR_BATCH,
-        diar_model=args.diar_model, language=args.language,
-        no_diar=args.no_diar, diar_threshold=args.diar_threshold,
-        diar_chunk_sec=args.diar_chunk_seconds, num_speakers=args.num_speakers,
+    raw = sys.stdin.buffer.read()
+    suffix = ".wav" if raw[:4] == b"RIFF" else ".raw"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+        handle.write(raw)
+        path = handle.name
+
+    if suffix == ".raw":
+        wav_path = path + ".wav"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-i",
+                path,
+                wav_path,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        os.unlink(path)
+        path = wav_path
+
+    atexit.register(lambda: os.path.exists(path) and os.unlink(path))
+    return path
+
+
+def _run_offline(args: argparse.Namespace) -> int:
+    if args.output == "ndjson":
+        print("error: ndjson is only available with --live", file=sys.stderr)
+        return 2
+    if args.seconds:
+        print("error: --seconds is only available with --live", file=sys.stderr)
+        return 2
+    if args.audio is None and sys.stdin.isatty():
+        print("error: provide an audio file, pipe stdin, or use --live", file=sys.stderr)
+        return 2
+
+    audio_path = args.audio if args.audio is not None else _stdin_to_temp_audio()
+    result = transcribe(
+        audio_path,
+        asr_model=args.asr_model or DEFAULT_ASR_FILE,
+        diar_model=args.diar_model,
+        language=args.language,
+        no_diar=args.no_diar,
+        diar_threshold=args.diar_threshold,
+        diar_chunk_sec=args.diar_chunk_seconds,
+        num_speakers=args.num_speakers,
         verbose=args.verbose,
     )
-    fn = FORMATTERS[args.output]
-    _emit_lines(fn(res, audio=audio_path if args.audio else None))
+    formatter = FORMATTERS[args.output]
+    _emit_lines(formatter(result, audio=audio_path if args.audio else None))
     return 0
 
 
@@ -149,18 +203,16 @@ def main(argv=None) -> int:
 
     if args.list_devices:
         print("Input devices:")
-        for idx, name, ch, rate in list_input_devices():
-            mark = ""
+        for index, name, channels, rate in list_input_devices():
+            marker = ""
             if "blackhole" in name.lower():
-                mark = "  <- system loopback"
+                marker = "  <- system loopback"
             elif "microphone" in name.lower() or "mic" in name.lower():
-                mark = "  <- mic"
-            print(f"  [{idx}] {name}  in={ch} sr={rate}{mark}")
+                marker = "  <- mic"
+            print(f"  [{index}] {name}  in={channels} sr={rate}{marker}")
         return 0
 
-    if args.live:
-        return _run_live(args)
-    return _run_batch(args)
+    return _run_live(args) if args.live else _run_offline(args)
 
 
 if __name__ == "__main__":

@@ -1,90 +1,92 @@
-"""Output formatters for DiarizationResult: json, yaml, md, srt, vtt, txt."""
+"""Output formatters for offline transcription results."""
 from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from typing import List
 
-from .core import DiarizationResult, Segment
+from .types import DiarizationResult
 
 
-def _result_dict(r: DiarizationResult, audio: str = None) -> dict:
+def _result_dict(result: DiarizationResult, audio: str = None) -> dict:
     return {
         **({"audio": audio} if audio else {}),
-        "language": r.language,
-        "models": r.models,
-        "speakers": r.speakers,
-        "num_speakers": len(r.speakers),
-        "diarization_turns": r.diarization_turns,
-        "text": r.text,
-        "segments": [
-            {**asdict(s), "words": [asdict(w) for w in s.words]}
-            for s in r.segments
-        ],
+        "language": result.language,
+        "models": result.models,
+        "speakers": result.speakers,
+        "num_speakers": len(result.speakers),
+        "diarization_turns": result.diarization_turns,
+        "text": result.text,
+        "segments": [asdict(segment) for segment in result.segments],
     }
 
 
-def to_json(r: DiarizationResult, audio: str = None) -> str:
-    return json.dumps(_result_dict(r, audio), indent=2, ensure_ascii=False)
+def to_json(result: DiarizationResult, audio: str = None) -> str:
+    return json.dumps(_result_dict(result, audio), indent=2, ensure_ascii=False)
 
 
-def to_yaml(r: DiarizationResult, audio: str = None) -> str:
-    try:
-        import yaml
-    except ImportError:
-        return "# PyYAML not installed; pip install pyyaml\n"
-    return yaml.safe_dump(_result_dict(r, audio), sort_keys=False, allow_unicode=True)
+def to_yaml(result: DiarizationResult, audio: str = None) -> str:
+    import yaml
+
+    return yaml.safe_dump(_result_dict(result, audio), sort_keys=False, allow_unicode=True)
 
 
-def to_markdown(r: DiarizationResult, audio: str = None) -> str:
+def to_markdown(result: DiarizationResult, audio: str = None) -> str:
     lines = []
     if audio:
         lines.append(f"# Transcript: `{audio}`\n")
-    lines.append(f"*{len(r.speakers)} speakers | {len(r.segments)} segments*\n")
-    cur = -1
-    for seg in r.segments:
-        if seg.speaker != cur:
-            cur = seg.speaker
-            tag = f"SPEAKER_{cur}" if cur >= 0 else "UNKNOWN"
-            lines.append(f"\n## {tag}  ({seg.start:.2f}s)\n")
-        lines.append(f"> {seg.text}")
+    lines.append(f"*{len(result.speakers)} speakers | {len(result.segments)} segments*\n")
+    current = None
+    for segment in result.segments:
+        if segment.speaker != current:
+            current = segment.speaker
+            tag = f"SPEAKER_{current}" if current >= 0 else "UNKNOWN"
+            lines.append(f"\n## {tag}  ({segment.start:.2f}s)\n")
+        lines.append(f"> {segment.text}")
     return "\n".join(lines) + "\n"
 
 
-def _ts(seconds: float) -> str:
-    """SRT/VTT timestamp: HH:MM:SS,mmm or HH:MM:SS.mmm"""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int((seconds - int(seconds)) * 1000)
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+def _timestamp(seconds: float, decimal: str = ",") -> str:
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    whole_seconds = int(seconds % 60)
+    milliseconds = int(round((seconds - int(seconds)) * 1000))
+    if milliseconds == 1000:
+        whole_seconds += 1
+        milliseconds = 0
+    return f"{hours:02d}:{minutes:02d}:{whole_seconds:02d}{decimal}{milliseconds:03d}"
 
 
-def to_srt(r: DiarizationResult, audio: str = None) -> str:
+def to_srt(result: DiarizationResult, audio: str = None) -> str:
     lines = []
-    for i, seg in enumerate(r.segments, 1):
-        tag = f"SPEAKER_{seg.speaker}" if seg.speaker >= 0 else "?"
-        lines.append(str(i))
-        lines.append(f"{_ts(seg.start)} --> {_ts(seg.end)}")
-        lines.append(f"[{tag}] {seg.text}")
-        lines.append("")
+    for index, segment in enumerate(result.segments, 1):
+        tag = f"SPEAKER_{segment.speaker}" if segment.speaker >= 0 else "?"
+        lines.extend(
+            [
+                str(index),
+                f"{_timestamp(segment.start)} --> {_timestamp(segment.end)}",
+                f"[{tag}] {segment.text}",
+                "",
+            ]
+        )
     return "\n".join(lines)
 
 
-def to_vtt(r: DiarizationResult, audio: str = None) -> str:
+def to_vtt(result: DiarizationResult, audio: str = None) -> str:
     lines = ["WEBVTT", ""]
-    for seg in r.segments:
-        tag = f"SPEAKER_{seg.speaker}" if seg.speaker >= 0 else "?"
-        s = _ts(seg.start).replace(",", ".")
-        e = _ts(seg.end).replace(",", ".")
-        lines.append(f"{s} --> {e}")
-        lines.append(f"<v {tag}>{seg.text}")
-        lines.append("")
+    for segment in result.segments:
+        tag = f"SPEAKER_{segment.speaker}" if segment.speaker >= 0 else "?"
+        lines.extend(
+            [
+                f"{_timestamp(segment.start, '.')} --> {_timestamp(segment.end, '.')}",
+                f"<v {tag}>{segment.text}",
+                "",
+            ]
+        )
     return "\n".join(lines)
 
 
-def to_txt(r: DiarizationResult, audio: str = None) -> str:
-    return r.text + "\n"
+def to_txt(result: DiarizationResult, audio: str = None) -> str:
+    return result.text + "\n"
 
 
 FORMATTERS = {

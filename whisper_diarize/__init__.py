@@ -1,21 +1,7 @@
-"""whisper_diarize: MLX Whisper + MLX speaker diarization for Apple Silicon.
+"""Local speaker-aware transcription for Apple Silicon."""
+from .offline import transcribe
+from .streaming import transcribe_stream
+from .types import DiarizationResult, Segment, Word
 
-Two modes:
-  - Batch (file / stdin pipe): full transcription + diarization + merge.
-  - Live (mic / BlackHole system audio): streaming NDJSON events.
-
-Outputs: json | yaml | md | srt | vtt | ndjson (live).
-
-Public API:
-  from whisper_diarize import transcribe, transcribe_stream
-"""
-from .core import (
-    transcribe,
-    transcribe_stream,
-    DiarizationResult,
-    Segment,
-    Word,
-)
-
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = ["transcribe", "transcribe_stream", "DiarizationResult", "Segment", "Word"]
