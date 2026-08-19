@@ -46,13 +46,10 @@ def to_markdown(result: DiarizationResult, audio: str = None) -> str:
 
 
 def _timestamp(seconds: float, decimal: str = ",") -> str:
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    whole_seconds = int(seconds % 60)
-    milliseconds = int(round((seconds - int(seconds)) * 1000))
-    if milliseconds == 1000:
-        whole_seconds += 1
-        milliseconds = 0
+    total_ms = max(0, round(seconds * 1000))
+    hours, remainder = divmod(total_ms, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    whole_seconds, milliseconds = divmod(remainder, 1000)
     return f"{hours:02d}:{minutes:02d}:{whole_seconds:02d}{decimal}{milliseconds:03d}"
 
 

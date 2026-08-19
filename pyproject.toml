@@ -4,20 +4,35 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "whisper-diarize"
-version = "0.1.0"
-description = "MLX Whisper + MLX speaker diarization for Apple Silicon. File / pipe / live mic."
+version = "0.2.0"
+description = "Local Whisper transcription and stateful speaker diarization for Apple Silicon."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "whisper-diarize" }]
-dependencies = [
-    "mlx-audio>=0.4.6",
-    "mlx-whisper>=0.4.3",
-    "numpy",
-    "scipy",
-    "sounddevice",
-    "pyyaml",
+authors = [{ name = "whisper-diarize contributors" }]
+keywords = ["mlx", "whisper", "diarization", "speech-to-text", "apple-silicon"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
+dependencies = [
+    "mlx-audio>=0.4.6,<0.5",
+    "mlx-whisper>=0.4.3",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "sounddevice>=0.4.6",
+    "pyyaml>=6.0",
+]
+
+[project.urls]
+Repository = "https://github.com/elix1er/whisper-diarize-mlx"
+Issues = "https://github.com/elix1er/whisper-diarize-mlx/issues"
 
 [project.scripts]
 whisper-diarize = "whisper_diarize.cli:main"

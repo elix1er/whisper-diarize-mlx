@@ -20,6 +20,19 @@ class AttributionTests(unittest.TestCase):
         ]
         self.assertEqual(assign_speaker(50.0, 51.0, turns), -1)
 
+    def test_no_turns_remains_unassigned(self):
+        self.assertEqual(assign_speaker(0.0, 1.0, []), -1)
+
+    def test_auto_drops_tiny_false_positive_channels(self):
+        turns = [
+            {"start": 0.0, "end": 1800.0, "speaker": 2},
+            {"start": 0.0, "end": 1000.0, "speaker": 0},
+            {"start": 900.0, "end": 904.0, "speaker": 1},
+            {"start": 1200.0, "end": 1203.0, "speaker": 3},
+        ]
+        selected = select_speakers(turns)
+        self.assertEqual({turn["speaker"] for turn in selected}, {0, 1})
+
     def test_auto_keeps_legitimate_low_talk_speaker(self):
         turns = [
             {"start": 0.0, "end": 1800.0, "speaker": 0},
@@ -39,6 +52,18 @@ class AttributionTests(unittest.TestCase):
         selected = select_speakers(turns, num_speakers=2)
         self.assertEqual(len(selected), 2)
         self.assertEqual([turn["speaker"] for turn in selected], [0, 1])
+
+    def test_dense_ids_follow_first_appearance(self):
+        turns = [
+            {"start": 10.0, "end": 20.0, "speaker": 0},
+            {"start": 0.0, "end": 9.0, "speaker": 3},
+        ]
+        selected = select_speakers(turns, num_speakers=2)
+        self.assertEqual([turn["speaker"] for turn in selected], [1, 0])
+
+    def test_invalid_known_count_fails_clearly(self):
+        with self.assertRaisesRegex(ValueError, "between 1 and 4"):
+            select_speakers([{"start": 0, "end": 1, "speaker": 0}], num_speakers=5)
 
 
 class CliContractTests(unittest.TestCase):
