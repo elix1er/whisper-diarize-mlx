@@ -1,8 +1,0 @@
-# Core runtime dependencies for whisper-diarize.
-# Matches pyproject.toml. Install in a dedicated venv (see README).
-mlx-audio>=0.4.6
-mlx-whisper>=0.4.3
-numpy>=1.26
-scipy>=1.11
-sounddevice>=0.4.6
-pyyaml>=6.0
