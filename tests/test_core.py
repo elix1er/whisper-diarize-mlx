@@ -1,7 +1,10 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-from whisper_diarize.attribution import assign_speaker, select_speakers
+from whisper_diarize.attribution import assign_speaker, merge_asr_segments, select_speakers
 from whisper_diarize.cli import _run_live, _run_offline, build_parser
+from whisper_diarize.offline import transcribe
 
 
 class AttributionTests(unittest.TestCase):
@@ -65,6 +68,14 @@ class AttributionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "between 1 and 4"):
             select_speakers([{"start": 0, "end": 1, "speaker": 0}], num_speakers=5)
 
+    def test_segment_timestamp_fallback_preserves_speaker_attribution(self):
+        segments = merge_asr_segments(
+            {"segments": [{"start": 3.0, "end": 5.0, "text": "Hallo"}]},
+            [{"start": 2.0, "end": 6.0, "speaker": 1}],
+        )
+        self.assertEqual(segments[0].speaker, 1)
+        self.assertEqual(segments[0].words, [])
+
 
 class CliContractTests(unittest.TestCase):
     def test_offline_ndjson_is_rejected_before_model_loading(self):
@@ -74,6 +85,20 @@ class CliContractTests(unittest.TestCase):
     def test_live_known_speaker_count_is_rejected_before_capture(self):
         args = build_parser().parse_args(["--live", "--num-speakers", "2"])
         self.assertEqual(_run_live(args), 2)
+
+
+class OfflineDecodeTests(unittest.TestCase):
+    def test_transcribe_defaults_to_segment_timestamps_and_loop_resistance(self):
+        whisper_transcribe = Mock(
+            return_value={"text": "Hallo", "segments": [], "language": "de"}
+        )
+        fake_whisper = SimpleNamespace(transcribe=whisper_transcribe)
+        with patch.dict("sys.modules", {"mlx_whisper": fake_whisper}):
+            transcribe("audio.m4a", no_diar=True, language="de")
+
+        kwargs = whisper_transcribe.call_args.kwargs
+        self.assertFalse(kwargs["word_timestamps"])
+        self.assertFalse(kwargs["condition_on_previous_text"])
 
 
 if __name__ == "__main__":
