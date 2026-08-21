@@ -50,6 +50,10 @@ whisper-diarize meeting.m4a -o md
 # Known cast size (Sortformer supports up to four speakers)
 whisper-diarize interview.m4a --num-speakers 2 -o md
 
+# Add domain terms / names when they are known in advance
+whisper-diarize meeting.m4a --language de \
+  --initial-prompt "SalesGen, LinkedIn, SaaS, ICP, acquisition.com" -o md
+
 # Subtitles
 whisper-diarize recording.wav -o srt
 whisper-diarize recording.wav -o vtt
@@ -175,6 +179,19 @@ So this is not a claim that a cascade always wins accuracy. It wins here on **li
 | Diarization | `mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16` | Stateful Sortformer v2.1, up to four speakers |
 
 Override model IDs with `--asr-model` and `--diar-model`.
+
+### Reliable offline decoding
+
+File transcription keeps word timestamps enabled so words can be attributed to
+speakers. To keep a bad 30-second decode from contaminating later audio, it
+defaults to a repetition-safe configuration: previous-window text is not fed
+back into the next window and likely hallucinations surrounded by two seconds
+of silence are skipped.
+
+Use `--initial-prompt` for known names or specialist terms. The output JSON
+records the selected decode settings. If continuity across windows matters more
+than resistance to repetition loops, opt in with `--condition-on-previous-text`.
+`--hallucination-silence-threshold 0` disables the silence guard.
 
 The package currently pins `mlx-audio` to `>=0.4.6,<0.5` because live Whisper integration uses its streaming implementation directly. That boundary should be reviewed when moving to a newer mlx-audio minor/major API.
 

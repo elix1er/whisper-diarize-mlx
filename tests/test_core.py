@@ -1,7 +1,10 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from whisper_diarize.attribution import assign_speaker, select_speakers
 from whisper_diarize.cli import _run_live, _run_offline, build_parser
+from whisper_diarize.offline import transcribe
 
 
 class AttributionTests(unittest.TestCase):
@@ -74,6 +77,63 @@ class CliContractTests(unittest.TestCase):
     def test_live_known_speaker_count_is_rejected_before_capture(self):
         args = build_parser().parse_args(["--live", "--num-speakers", "2"])
         self.assertEqual(_run_live(args), 2)
+
+    def test_offline_decode_defaults_are_repetition_safe(self):
+        args = build_parser().parse_args(["audio.wav"])
+        self.assertFalse(args.condition_on_previous_text)
+        self.assertEqual(args.hallucination_silence_threshold, 2.0)
+        self.assertIsNone(args.initial_prompt)
+
+    def test_offline_decode_options_are_configurable(self):
+        args = build_parser().parse_args(
+            [
+                "audio.wav",
+                "--condition-on-previous-text",
+                "--hallucination-silence-threshold",
+                "0",
+                "--initial-prompt",
+                "SaaS, LinkedIn, ICP",
+            ]
+        )
+        self.assertTrue(args.condition_on_previous_text)
+        self.assertEqual(args.hallucination_silence_threshold, 0.0)
+        self.assertEqual(args.initial_prompt, "SaaS, LinkedIn, ICP")
+
+
+class OfflineDecodeTests(unittest.TestCase):
+    def test_transcribe_forwards_repetition_safe_defaults_to_mlx_whisper(self):
+        whisper_transcribe = Mock(
+            return_value={"text": "Hallo", "segments": [], "language": "de"}
+        )
+        fake_whisper = SimpleNamespace(transcribe=whisper_transcribe)
+        with patch.dict("sys.modules", {"mlx_whisper": fake_whisper}):
+            result = transcribe("audio.m4a", no_diar=True, language="de")
+
+        kwargs = whisper_transcribe.call_args.kwargs
+        self.assertTrue(kwargs["word_timestamps"])
+        self.assertFalse(kwargs["condition_on_previous_text"])
+        self.assertEqual(kwargs["hallucination_silence_threshold"], 2.0)
+        self.assertIsNone(kwargs["initial_prompt"])
+        self.assertEqual(result.models["decode"]["condition_on_previous_text"], False)
+
+    def test_transcribe_forwards_explicit_decode_options_to_mlx_whisper(self):
+        whisper_transcribe = Mock(
+            return_value={"text": "Hallo", "segments": [], "language": "de"}
+        )
+        fake_whisper = SimpleNamespace(transcribe=whisper_transcribe)
+        with patch.dict("sys.modules", {"mlx_whisper": fake_whisper}):
+            transcribe(
+                "audio.m4a",
+                no_diar=True,
+                condition_on_previous_text=True,
+                hallucination_silence_threshold=None,
+                initial_prompt="SaaS, LinkedIn",
+            )
+
+        kwargs = whisper_transcribe.call_args.kwargs
+        self.assertTrue(kwargs["condition_on_previous_text"])
+        self.assertIsNone(kwargs["hallucination_silence_threshold"])
+        self.assertEqual(kwargs["initial_prompt"], "SaaS, LinkedIn")
 
 
 if __name__ == "__main__":

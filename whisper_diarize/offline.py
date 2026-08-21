@@ -12,6 +12,7 @@ from .types import DiarizationResult
 DEFAULT_ASR_FILE = "mlx-community/whisper-large-v3-turbo"
 DEFAULT_DIAR = "mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16"
 DEFAULT_DIAR_CHUNK_SEC = 5.0
+DEFAULT_HALLUCINATION_SILENCE_SEC = 2.0
 
 
 def transcribe(
@@ -22,12 +23,22 @@ def transcribe(
     language: Optional[str] = None,
     no_diar: bool = False,
     word_timestamps: bool = True,
+    condition_on_previous_text: bool = False,
+    hallucination_silence_threshold: Optional[float] = DEFAULT_HALLUCINATION_SILENCE_SEC,
+    initial_prompt: Optional[str] = None,
     diar_threshold: float = 0.5,
     diar_chunk_sec: float = DEFAULT_DIAR_CHUNK_SEC,
     num_speakers: Optional[int] = None,
     verbose: bool = False,
 ) -> DiarizationResult:
-    """Transcribe an audio file or 16 kHz mono array and attribute words to speakers."""
+    """Transcribe an audio file or 16 kHz mono array and attribute words to speakers.
+
+    Offline files default to a repetition-safe decode: each Whisper window is
+    decoded without feeding the prior window's text back as a prompt, and the
+    library's silence-aware hallucination guard is enabled. This avoids a bad
+    window poisoning the remaining recording while retaining word timestamps
+    for speaker attribution.
+    """
     if verbose:
         print(f"[whisper_diarize] ASR {asr_model}", flush=True)
 
@@ -39,6 +50,9 @@ def transcribe(
         path_or_hf_repo=asr_model,
         word_timestamps=word_timestamps,
         language=language,
+        condition_on_previous_text=condition_on_previous_text,
+        hallucination_silence_threshold=hallucination_silence_threshold,
+        initial_prompt=initial_prompt,
     )
     if verbose:
         print(f"[whisper_diarize] ASR done {time.time() - started:.2f}s", flush=True)
@@ -83,5 +97,13 @@ def transcribe(
         speakers=speakers,
         diarization_turns=turns,
         language=asr.get("language"),
-        models={"asr": asr_model, "diarization": None if no_diar else diar_model},
+        models={
+            "asr": asr_model,
+            "diarization": None if no_diar else diar_model,
+            "decode": {
+                "condition_on_previous_text": condition_on_previous_text,
+                "hallucination_silence_threshold": hallucination_silence_threshold,
+                "initial_prompt": initial_prompt,
+            },
+        },
     )
