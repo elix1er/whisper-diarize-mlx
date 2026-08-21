@@ -210,7 +210,7 @@ python -m unittest discover -s tests -v
 
 For real audio validation, run the installed CLI on representative recordings and live input on Apple Silicon. Model-backed benchmarks are intentionally not published in the README until they are reproducible against the current default model versions.
 
-Codex can use the repo-local [`whisper-diarize-mlx` skill](.agents/skills/whisper-diarize-mlx/SKILL.md) for real-audio runs, fair model comparisons, and runtime validation.
+Codex can use the repo-local [`whisper-diarize-mlx` skill](.agents/skills/whisper-diarize-mlx/SKILL.md) to turn recordings into checked, speaker-labelled transcripts and transcript-derived results.
 
 ## License
 
