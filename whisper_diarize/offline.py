@@ -21,13 +21,18 @@ def transcribe(
     diar_model: str = DEFAULT_DIAR,
     language: Optional[str] = None,
     no_diar: bool = False,
-    word_timestamps: bool = True,
+    word_timestamps: bool = False,
+    condition_on_previous_text: bool = False,
     diar_threshold: float = 0.5,
     diar_chunk_sec: float = DEFAULT_DIAR_CHUNK_SEC,
     num_speakers: Optional[int] = None,
     verbose: bool = False,
 ) -> DiarizationResult:
-    """Transcribe an audio file or 16 kHz mono array and attribute words to speakers."""
+    """Transcribe an audio file or 16 kHz mono array with speaker attribution.
+
+    Segment timestamps are the reliable default for long recordings. Word-level
+    alignment remains available to API callers that explicitly need it.
+    """
     if verbose:
         print(f"[whisper_diarize] ASR {asr_model}", flush=True)
 
@@ -39,6 +44,7 @@ def transcribe(
         path_or_hf_repo=asr_model,
         word_timestamps=word_timestamps,
         language=language,
+        condition_on_previous_text=condition_on_previous_text,
     )
     if verbose:
         print(f"[whisper_diarize] ASR done {time.time() - started:.2f}s", flush=True)

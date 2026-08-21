@@ -4,7 +4,7 @@
 
 **Local, speaker-aware transcription for Apple Silicon.**
 
-Whisper large-v3-turbo for speech recognition, Sortformer v2.1 for stateful speaker diarization, word-level speaker attribution for files, and true incremental microphone/system-audio processing for live workloads.
+Whisper large-v3-turbo for speech recognition, Sortformer v2.1 for stateful speaker diarization, segment-level speaker attribution for files, and true incremental microphone/system-audio processing for live workloads.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![Apple Silicon](https://img.shields.io/badge/platform-Apple%20Silicon-black)](https://developer.apple.com/metal/)
@@ -15,7 +15,7 @@ Whisper large-v3-turbo for speech recognition, Sortformer v2.1 for stateful spea
 ## Highlights
 
 - **Local on Apple Silicon** — MLX-native inference; no hosted transcription API required.
-- **Speaker-attributed output** — Whisper word timestamps are matched to Sortformer speaker turns.
+- **Speaker-attributed output** — Whisper segment timestamps are matched to Sortformer speaker turns.
 - **Long-recording friendly** — offline diarization uses Sortformer v2.1's stateful streaming path instead of full-sequence attention over the entire recording.
 - **True live PCM input** — microphone or loopback audio is incrementally fed into Whisper's streaming decoder and persistent Sortformer state.
 - **Useful output formats** — JSON, YAML, Markdown, SRT, VTT and plain text for files; NDJSON events for live mode.
@@ -75,8 +75,10 @@ for segment in result.segments:
         f"speaker_{segment.speaker}: {segment.text}"
     )
 
-    for word in segment.words:
-        print(word.word, word.start, word.end, word.probability, word.speaker)
+# Opt in only when word-level timing is genuinely required.
+detailed = transcribe("meeting.m4a", language="en", word_timestamps=True)
+for word in detailed.segments[0].words:
+    print(word.word, word.start, word.end, word.probability, word.speaker)
 ```
 
 ## Live transcription
@@ -126,7 +128,7 @@ macOS microphone/screen-audio permissions still apply to the terminal or Python 
                 +----------+----------+
                 |                     |
              Whisper              Sortformer
-          speech + words        speaker activity
+         speech + segments      speaker activity
                 |                     |
                 +----------+----------+
                            |
@@ -159,22 +161,30 @@ That is attractive for simple offline transcription. This project intentionally 
 | | Whisper + Sortformer | End-to-end diarizing ASR |
 |---|---|---|
 | Live PCM | **Incremental Whisper + persistent Sortformer state** | Depends on model/runtime; token streaming is not necessarily live audio streaming |
-| Timing | **Whisper word timestamps + confidence** | Commonly segment-oriented generated timestamps |
+| Timing | **Whisper segment timestamps** | Commonly segment-oriented generated timestamps |
 | Debugging | **ASR, diarization and attribution inspectible separately** | Errors are coupled in one generated result |
 | Model upgrades | **ASR and diarizer replaceable independently** | Transcription and speaker behavior are tied together |
 | Offline simplicity | More moving parts | **Single-model pipeline** |
 
-So this is not a claim that a cascade always wins accuracy. It wins here on **live-stream architecture, word-level output, observability and replaceable best-of-breed components**. End-to-end models remain useful benchmark targets and potential future offline backends.
+So this is not a claim that a cascade always wins accuracy. It wins here on **live-stream architecture, optional word-level output, observability and replaceable best-of-breed components**. End-to-end models remain useful benchmark targets and potential future offline backends.
 
 ## Models
 
 | Role | Default | Notes |
 |---|---|---|
-| Offline ASR | `mlx-community/whisper-large-v3-turbo` | MLX Whisper port with word timestamps |
+| Offline ASR | `mlx-community/whisper-large-v3-turbo` | MLX Whisper port with segment timestamps |
 | Live ASR | `openai/whisper-large-v3-turbo` | Used through mlx-audio's Whisper streaming decoder |
 | Diarization | `mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16` | Stateful Sortformer v2.1, up to four speakers |
 
 Override model IDs with `--asr-model` and `--diar-model`.
+
+### Reliable offline decoding
+
+Offline transcription uses segment timestamps and does not feed prior-window
+text into the next Whisper window. This keeps a poor 30-second decode from
+contaminating the rest of a long recording while retaining speaker-labelled
+transcript segments. API callers that genuinely need word timing can opt in
+with `transcribe(..., word_timestamps=True)`.
 
 The package currently pins `mlx-audio` to `>=0.4.6,<0.5` because live Whisper integration uses its streaming implementation directly. That boundary should be reviewed when moving to a newer mlx-audio minor/major API.
 
@@ -186,7 +196,7 @@ The repository source code is MIT licensed. Model weights are downloaded separat
 
 - Sortformer exposes up to four speaker channels; `--num-speakers` accepts `1..4` for offline files.
 - When speaker count is not supplied, tiny low-activity channels are suppressed with a small absolute activity floor rather than a recording-length-relative threshold.
-- Word attribution prefers temporal overlap and only uses nearest-speaker fallback across a bounded short gap. Distant diarization misses remain unknown instead of being force-labeled.
+- Segment attribution prefers temporal overlap and only uses nearest-speaker fallback across a bounded short gap. Distant diarization misses remain unknown instead of being force-labeled.
 - Offline Sortformer processing preserves streaming speaker state across the recording, but file mode can still prepare full-file features/right context internally; memory is therefore not strictly constant with recording length.
 - Live events currently expose ASR and diarization updates independently. Consumers that need a continuously revised speaker-attributed transcript should reconcile those events or use offline final transcription.
 
