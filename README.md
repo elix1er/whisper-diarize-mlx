@@ -210,6 +210,8 @@ python -m unittest discover -s tests -v
 
 For real audio validation, run the installed CLI on representative recordings and live input on Apple Silicon. Model-backed benchmarks are intentionally not published in the README until they are reproducible against the current default model versions.
 
+Codex can use the repo-local [`whisper-diarize-mlx` skill](.agents/skills/whisper-diarize-mlx/SKILL.md) for real-audio runs, fair model comparisons, and runtime validation.
+
 ## License
 
 [MIT](LICENSE) for this repository's source code. Downloaded model weights are licensed separately by their respective upstream projects.
