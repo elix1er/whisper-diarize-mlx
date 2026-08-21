@@ -8,13 +8,7 @@ import sys
 import threading
 
 from .formatters import FORMATTERS
-from .offline import (
-    DEFAULT_ASR_FILE,
-    DEFAULT_DIAR,
-    DEFAULT_DIAR_CHUNK_SEC,
-    DEFAULT_HALLUCINATION_SILENCE_SEC,
-    transcribe,
-)
+from .offline import DEFAULT_ASR_FILE, DEFAULT_DIAR, DEFAULT_DIAR_CHUNK_SEC, transcribe
 from .sources import EOS, LiveAudioSource, list_input_devices
 from .streaming import DEFAULT_ASR_STREAM, transcribe_stream
 
@@ -29,13 +23,6 @@ def _emit_lines(text: str) -> None:
     if not text.endswith("\n"):
         sys.stdout.write("\n")
     sys.stdout.flush()
-
-
-def _nonnegative_float(value: str) -> float:
-    result = float(value)
-    if result < 0:
-        raise argparse.ArgumentTypeError("must be zero or greater")
-    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,25 +62,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="language code; offline auto-detects when omitted, live defaults to en",
     )
     parser.add_argument("--no-diar", action="store_true", help="disable speaker diarization")
-    parser.add_argument(
-        "--condition-on-previous-text",
-        action="store_true",
-        help="feed earlier Whisper text into later windows; may improve continuity but can amplify loops",
-    )
-    parser.add_argument(
-        "--hallucination-silence-threshold",
-        type=_nonnegative_float,
-        default=DEFAULT_HALLUCINATION_SILENCE_SEC,
-        metavar="SECONDS",
-        help=(
-            "skip likely hallucinations surrounded by this much silence "
-            f"(default: {DEFAULT_HALLUCINATION_SILENCE_SEC:g}; 0 disables)"
-        ),
-    )
-    parser.add_argument(
-        "--initial-prompt",
-        help="optional domain terms or names to prime offline Whisper decoding",
-    )
     parser.add_argument(
         "--seconds",
         type=float,
@@ -220,9 +188,6 @@ def _run_offline(args: argparse.Namespace) -> int:
         diar_model=args.diar_model,
         language=args.language,
         no_diar=args.no_diar,
-        condition_on_previous_text=args.condition_on_previous_text,
-        hallucination_silence_threshold=args.hallucination_silence_threshold or None,
-        initial_prompt=args.initial_prompt,
         diar_threshold=args.diar_threshold,
         diar_chunk_sec=args.diar_chunk_seconds,
         num_speakers=args.num_speakers,
