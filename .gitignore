@@ -1,4 +1,4 @@
-# ── Python ──────────────────────────────────────────────────────────────
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,22 +7,10 @@ __pycache__/
 
 # Build / packaging
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
 .eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
 *.egg-info/
-.installed.cfg
 *.egg
-MANIFEST
 
 # Virtual environments
 .venv/
@@ -31,61 +19,43 @@ env/
 ENV/
 .venv-*/
 
-# ── Test runners / coverage ────────────────────────────────────────────
+# Test / tooling caches
 .tox/
 .nox/
 .coverage
 .coverage.*
-.cache
-nosetests.xml
 coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-.dmypy.json
-dmypy.json
+.hypothesis/
+.cache/
 
-# ── Editors / IDE ──────────────────────────────────────────────────────
+# Editors / OS
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
-AppleDouble
-.LSOverride
 
-# ── Jupyter ────────────────────────────────────────────────────────────
+# Jupyter
 .ipynb_checkpoints/
 *.ipynb
 
-# ── Project-specific outputs (generated, not source) ───────────────────
-# PoC result artifacts — regenerated on every run
-poc/result.json
-poc/result.yaml
-poc/*.ndjson
-*.ndjson
-
-# Generated test audio (reproducible via poc/generate_samples.py)
-poc/*.aiff
-poc/samples/*.wav
-!poc/samples/.gitkeep
-
-# Temp audio files
-*.tmp.wav
-*.raw
-/tmp/
-
-# User recordings and generated transcripts
+# Generated / local audio and transcript artifacts
 *.m4a
 *.aac
 *.mp3
 *.wav
+*.aiff
+*.raw
+*.ndjson
 *.srt
 *.vtt
 *.diar.txt
 *.diar.json
-!poc/samples/.gitkeep
+*.tmp.wav
+
+# Temporary files
+/tmp/

@@ -19,24 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-NOTE ON MODEL WEIGHTS
-
-This software downloads and runs pre-trained model weights from Hugging Face
-at runtime. Those weights carry their own licenses that are NOT covered by the
-MIT license above:
-
-  - MLX Whisper ports (mlx-community/whisper-large-v3-turbo, etc.):
-    derived from OpenAI Whisper (MIT).
-  - openai/whisper-large-v3-turbo: MIT.
-  - mlx-community/diar_sortformer_4spk-v1-fp16: derived from NVIDIA NeMo
-    Sortformer. The NVIDIA weights are released under CC-BY-NC-4.0
-    (non-commercial). Verify the current license on the model card before any
-    commercial use; for commercial deployments swap to an MIT-licensed
-    diarization backend (e.g. mlx-community/pyannote-segmentation-3.0-mlx +
-    WeSpeaker embeddings).
-
-You are responsible for complying with the model weight licenses in your
-specific use case.
